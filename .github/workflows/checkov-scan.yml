@@ -1,0 +1,78 @@
+name: "IaC Security Scan dengan Checkov"
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "terraform/**"
+      - "kubernetes/**"
+      - "dockerfile/**"
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  checkov-scan:
+    name: "Checkov Security Scan"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+
+      - name: "Run Checkov - Terraform"
+        id: checkov-terraform
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: terraform/
+          framework: terraform
+          output_format: cli,sarif
+          output_file_path: console,checkov-terraform.sarif
+          soft_fail: false
+        continue-on-error: true
+
+      - name: "Run Checkov - Kubernetes"
+        id: checkov-k8s
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: kubernetes/
+          framework: kubernetes
+          output_format: cli,sarif
+          output_file_path: console,checkov-k8s.sarif
+          soft_fail: true
+        continue-on-error: true
+
+      - name: "Run Checkov - Dockerfile"
+        id: checkov-dockerfile
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: dockerfile/
+          framework: dockerfile
+          output_format: cli,sarif
+          output_file_path: console,checkov-dockerfile.sarif
+          soft_fail: true
+        continue-on-error: true
+
+      - name: "Upload SARIF ke GitHub Security tab"
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('checkov-terraform.sarif') != ''
+        with:
+          sarif_file: checkov-terraform.sarif
+          category: "checkov-terraform"
+
+      - name: "Block pipeline jika ditemukan pelanggaran di Terraform"
+        if: steps.checkov-terraform.outcome == 'failure'
+        run: |
+          echo "Checkov menemukan pelanggaran keamanan pada Terraform!"
+          echo "Periksa log job atau tab Security -> Code scanning untuk detail."
+          exit 1
+
+      - name: "Report sukses"
+        if: steps.checkov-terraform.outcome == 'success'
+        run: |
+          echo "Seluruh pemeriksaan Checkov pada Terraform PASSED!"
